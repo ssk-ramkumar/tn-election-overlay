@@ -1,0 +1,1509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=1920">
+<title>TN Election 2026 Live | OBS Overlay</title>
+
+<!--
+  ╔══════════════════════════════════════════════════════════════════════╗
+  ║   TN ELECTION 2026 — LIVE OBS OVERLAY                              ║
+  ║   Google Sheets → JSON → Live UI                                    ║
+  ║                                                                      ║
+  ║   HOW TO CONFIGURE:                                                  ║
+  ║   1. Find SHEET_ID below and replace with your Google Sheet ID      ║
+  ║   2. Make your Google Sheet public (Share → Anyone with link)       ║
+  ║   3. Host this file on GitHub Pages                                 ║
+  ║   4. Paste the GitHub Pages URL into OBS Browser Source            ║
+  ║                                                                      ║
+  ║   GOOGLE SHEET FORMAT (Sheet1):                                     ║
+  ║   key        | value                                                ║
+  ║   dmk        | 132                                                  ║
+  ║   aiadmk     | 48                                                   ║
+  ║   tvk        | 28                                                   ║
+  ║   ntk        | 12                                                   ║
+  ║   others     | 14                                                   ║
+  ║   headline   | DMK TAKES COMMANDING LEAD                           ║
+  ║   ticker     | DMK wins Chennai | AIADMK holds Coimbatore          ║
+  ║   declared   | 234                                                  ║
+  ╚══════════════════════════════════════════════════════════════════════╝
+-->
+
+<style>
+/* ── GOOGLE FONTS ─────────────────────────────────────────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Rajdhani:wght@400;600;700&family=Oswald:wght@300;400;500;600&display=swap');
+
+/* ── RESET & BASE ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --red:        #C0392B;
+  --red-dark:   #8B0000;
+  --red-bright: #E74C3C;
+  --gold:       #F39C12;
+  --gold-dim:   #B7770D;
+  --bg:         #070710;
+  --bg2:        #0d0d1e;
+  --bg3:        #111128;
+  --panel:      rgba(7,7,16,0.94);
+  --border:     rgba(240,150,18,0.35);
+  --border-red: rgba(192,57,43,0.6);
+  --text:       #FFFFFF;
+  --text-dim:   rgba(255,255,255,0.7);
+  --text-mute:  rgba(255,255,255,0.4);
+  --dmk:        #E74C3C;
+  --aiadmk:     #27AE60;
+  --tvk:        #F39C12;
+  --ntk:        #9B59B6;
+  --others:     #607D8B;
+  --majority:   118;
+  --total:      234;
+}
+
+html, body {
+  width: 1920px;
+  height: 1080px;
+  overflow: hidden;
+  background: var(--bg);
+  font-family: 'Rajdhani', sans-serif;
+  color: var(--text);
+}
+
+/* ── BACKGROUND LAYERS ───────────────────────────────────────────────── */
+#bg-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Diagonal scan lines */
+#bg-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(0,0,0,0.18) 3px,
+    rgba(0,0,0,0.18) 4px
+  );
+  z-index: 2;
+}
+
+/* Radial center glow */
+#bg-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 60% 70% at 50% 45%,
+    rgba(120,10,10,0.22) 0%,
+    transparent 70%
+  );
+  z-index: 1;
+}
+
+/* TN MAP SVG — center background */
+#map-bg {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -45%);
+  width: 420px;
+  height: 680px;
+  opacity: 0.08;
+  z-index: 1;
+  animation: mapPulse 6s ease-in-out infinite;
+}
+
+@keyframes mapPulse {
+  0%, 100% { opacity: 0.08; filter: drop-shadow(0 0 0px rgba(240,150,18,0)); }
+  50%       { opacity: 0.13; filter: drop-shadow(0 0 18px rgba(240,150,18,0.4)); }
+}
+
+/* Subtle grid */
+#grid-bg {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(192,57,43,0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(192,57,43,0.04) 1px, transparent 1px);
+  background-size: 60px 60px;
+  z-index: 1;
+}
+
+/* ── MAIN LAYOUT ─────────────────────────────────────────────────────── */
+#root {
+  position: relative;
+  z-index: 10;
+  width: 1920px;
+  height: 1080px;
+  display: grid;
+  grid-template-rows: 72px 1fr 42px 50px;
+  grid-template-columns: 340px 1fr 340px;
+  grid-template-areas:
+    "topbar  topbar  topbar"
+    "left    center  right"
+    "subtick subtick subtick"
+    "ticker  ticker  ticker";
+}
+
+/* ── TOP BAR ─────────────────────────────────────────────────────────── */
+#top-bar {
+  grid-area: topbar;
+  background: linear-gradient(90deg, var(--red-dark) 0%, var(--red) 30%, #a93226 70%, var(--red-dark) 100%);
+  border-bottom: 3px solid var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 24px;
+  position: relative;
+  overflow: hidden;
+}
+
+#top-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.04) 50%, transparent 100%);
+  pointer-events: none;
+}
+
+.top-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.live-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0,0,0,0.35);
+  border: 1px solid rgba(255,255,255,0.25);
+  border-radius: 3px;
+  padding: 5px 14px;
+}
+
+.live-dot {
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-radius: 50%;
+  animation: liveBlink 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes liveBlink {
+  0%, 100% { opacity: 1; box-shadow: 0 0 8px rgba(255,255,255,0.8); }
+  50%       { opacity: 0.15; box-shadow: none; }
+}
+
+.live-text {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  letter-spacing: 4px;
+  color: #fff;
+}
+
+.top-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 30px;
+  letter-spacing: 5px;
+  color: #fff;
+  text-shadow: 0 1px 8px rgba(0,0,0,0.6);
+}
+
+.top-channel {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 36px;
+  letter-spacing: 3px;
+  color: var(--gold);
+  text-shadow: 0 0 20px rgba(243,156,18,0.5);
+}
+
+.top-right {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+#live-time {
+  font-family: 'Oswald', sans-serif;
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.95);
+}
+
+#live-date {
+  font-family: 'Oswald', sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  color: rgba(255,255,255,0.6);
+}
+
+/* ── LEFT LEADER PANEL ───────────────────────────────────────────────── */
+#left-panel, #right-panel {
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 10px;
+}
+
+#left-panel { grid-area: left; }
+#right-panel { grid-area: right; }
+
+.leader-card {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Colored top accent per party */
+.leader-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+}
+
+#leader-vijay .leader-card::before { background: var(--tvk); box-shadow: 0 0 10px rgba(243,156,18,0.6); }
+#leader-eps .leader-card::before   { background: var(--aiadmk); box-shadow: 0 0 10px rgba(39,174,96,0.6); }
+
+.leader-icon {
+  font-size: 96px;
+  line-height: 1;
+  margin-bottom: 8px;
+  filter: grayscale(20%);
+  animation: float 5s ease-in-out infinite;
+}
+
+#leader-vijay .leader-icon { animation-delay: 0s; }
+#leader-eps   .leader-icon { animation-delay: 2.5s; }
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+
+.leader-info-bar {
+  width: 100%;
+  background: rgba(0,0,0,0.88);
+  border-top: 2px solid;
+  padding: 8px 12px;
+  text-align: center;
+}
+
+#leader-vijay .leader-info-bar { border-color: var(--tvk); }
+#leader-eps   .leader-info-bar { border-color: var(--aiadmk); }
+
+.leader-name {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 26px;
+  letter-spacing: 2px;
+  line-height: 1;
+}
+
+#leader-vijay .leader-name { color: var(--tvk); }
+#leader-eps   .leader-name { color: var(--aiadmk); }
+
+.leader-party {
+  font-family: 'Oswald', sans-serif;
+  font-size: 13px;
+  font-weight: 300;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.leader-seat-count {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 52px;
+  line-height: 1;
+  margin-top: 4px;
+  transition: all 0.4s ease;
+}
+
+#leader-vijay .leader-seat-count { color: var(--tvk); }
+#leader-eps   .leader-seat-count { color: var(--aiadmk); }
+
+.leader-seat-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+  margin-top: -2px;
+}
+
+/* Mini stats inside leader panel */
+.leader-mini-stats {
+  width: 100%;
+  padding: 0 12px 10px;
+  display: flex;
+  justify-content: space-around;
+}
+
+.mini-stat { text-align: center; }
+.mini-stat-val {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 18px;
+  color: var(--gold);
+}
+.mini-stat-lbl {
+  font-size: 10px;
+  letter-spacing: 1px;
+  color: var(--text-mute);
+  font-weight: 600;
+}
+
+/* STATUS BADGE (shows LEADING / MAJORITY) */
+.status-badge {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 13px;
+  letter-spacing: 2px;
+  display: none;
+}
+
+.status-badge.leading {
+  display: block;
+  background: var(--gold);
+  color: #000;
+}
+
+.status-badge.majority {
+  display: block;
+  background: var(--aiadmk);
+  color: #fff;
+  animation: majorityPulse 0.7s ease-in-out infinite alternate;
+}
+
+@keyframes majorityPulse {
+  from { box-shadow: 0 0 4px rgba(39,174,96,0.4); }
+  to   { box-shadow: 0 0 16px rgba(39,174,96,1); }
+}
+
+/* ── CENTER BOARD ────────────────────────────────────────────────────── */
+#center-board {
+  grid-area: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 20px;
+  gap: 10px;
+}
+
+/* Board Header */
+#board-header {
+  width: 100%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px;
+  flex-shrink: 0;
+}
+
+#board-title {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 20px;
+  letter-spacing: 5px;
+  color: var(--gold);
+}
+
+#declared-count {
+  font-family: 'Oswald', sans-serif;
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+}
+
+#declared-count span {
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* MAJORITY BAR */
+#majority-wrap {
+  width: 100%;
+  flex-shrink: 0;
+}
+
+#majority-bar-track {
+  width: 100%;
+  height: 22px;
+  background: rgba(255,255,255,0.06);
+  border-radius: 3px;
+  overflow: visible;
+  position: relative;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+#majority-bar-fill {
+  height: 100%;
+  display: flex;
+  border-radius: 3px;
+  overflow: hidden;
+  transition: all 0.8s ease;
+}
+
+.mbar-dmk     { background: var(--dmk); transition: flex 1s ease; }
+.mbar-aiadmk  { background: var(--aiadmk); transition: flex 1s ease; }
+.mbar-tvk     { background: var(--tvk); transition: flex 1s ease; }
+.mbar-ntk     { background: var(--ntk); transition: flex 1s ease; }
+.mbar-others  { background: var(--others); transition: flex 1s ease; }
+
+#majority-line {
+  position: absolute;
+  top: -6px;
+  bottom: -6px;
+  left: calc(118 / 234 * 100%);
+  width: 2px;
+  background: var(--gold);
+  box-shadow: 0 0 8px rgba(243,156,18,0.9);
+}
+
+#majority-label {
+  position: absolute;
+  top: -22px;
+  left: calc(118 / 234 * 100%);
+  transform: translateX(-50%);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 12px;
+  letter-spacing: 1px;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+#bar-legend {
+  display: flex;
+  gap: 16px;
+  margin-top: 6px;
+  justify-content: center;
+}
+
+.bar-leg-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 1px;
+  color: var(--text-dim);
+}
+
+.bar-leg-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* PARTY CARDS GRID */
+#party-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 10px;
+  width: 100%;
+  flex: 1;
+}
+
+.party-card {
+  background: var(--panel);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 14px 12px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.5s ease, box-shadow 0.5s ease;
+}
+
+/* Colored left accent */
+.party-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 4px;
+  border-radius: 3px 0 0 3px;
+}
+
+#card-dmk::before    { background: var(--dmk); }
+#card-aiadmk::before { background: var(--aiadmk); }
+#card-tvk::before    { background: var(--tvk); }
+#card-ntk::before    { background: var(--ntk); }
+
+/* Background shimmer */
+.party-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.5s ease;
+}
+
+#card-dmk::after    { background: radial-gradient(ellipse at 80% 20%, rgba(231,76,60,0.08), transparent 60%); }
+#card-aiadmk::after { background: radial-gradient(ellipse at 80% 20%, rgba(39,174,96,0.08), transparent 60%); }
+#card-tvk::after    { background: radial-gradient(ellipse at 80% 20%, rgba(243,156,18,0.08), transparent 60%); }
+#card-ntk::after    { background: radial-gradient(ellipse at 80% 20%, rgba(155,89,182,0.08), transparent 60%); }
+
+.party-card.leading {
+  border-color: rgba(255,255,255,0.2);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06);
+}
+.party-card.leading::after { opacity: 1; }
+
+.party-card.majority-reached {
+  animation: majorityCard 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes majorityCard {
+  from { box-shadow: 0 0 0px transparent; }
+  to   { box-shadow: 0 0 24px rgba(39,174,96,0.5), inset 0 0 20px rgba(39,174,96,0.08); }
+}
+
+.party-abbr {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 24px;
+  letter-spacing: 3px;
+  line-height: 1;
+}
+
+#card-dmk    .party-abbr { color: var(--dmk); }
+#card-aiadmk .party-abbr { color: var(--aiadmk); }
+#card-tvk    .party-abbr { color: var(--tvk); }
+#card-ntk    .party-abbr { color: var(--ntk); }
+
+.party-full-name {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  font-weight: 300;
+  letter-spacing: 1.5px;
+  color: var(--text-mute);
+  margin-top: 2px;
+  text-align: center;
+}
+
+.party-seat-num {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 88px;
+  line-height: 1;
+  margin: 6px 0;
+  transition: color 0.4s ease;
+  position: relative;
+}
+
+#card-dmk    .party-seat-num { color: var(--dmk); }
+#card-aiadmk .party-seat-num { color: var(--aiadmk); }
+#card-tvk    .party-seat-num { color: var(--tvk); }
+#card-ntk    .party-seat-num { color: var(--ntk); }
+
+/* Seat number update pulse animation */
+@keyframes seatFlash {
+  0%   { transform: scale(1); filter: brightness(1); }
+  20%  { transform: scale(1.18); filter: brightness(2.2); }
+  40%  { transform: scale(0.96); filter: brightness(1.5); }
+  60%  { transform: scale(1.08); filter: brightness(1.8); }
+  80%  { transform: scale(0.99); filter: brightness(1.2); }
+  100% { transform: scale(1); filter: brightness(1); }
+}
+
+.seat-updated {
+  animation: seatFlash 0.7s cubic-bezier(0.36, 0.07, 0.19, 0.97);
+}
+
+.party-seat-label {
+  font-family: 'Oswald', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: 2px;
+  color: var(--text-mute);
+  text-transform: uppercase;
+}
+
+.party-leading-tag {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 12px;
+  letter-spacing: 2px;
+  padding: 2px 7px;
+  border-radius: 2px;
+  display: none;
+}
+
+.party-card.leading .party-leading-tag {
+  display: block;
+  background: var(--gold);
+  color: #000;
+}
+
+.party-majority-tag {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 13px;
+  letter-spacing: 2px;
+  padding: 3px 10px;
+  border-radius: 3px;
+  background: var(--aiadmk);
+  color: #fff;
+  white-space: nowrap;
+  display: none;
+  animation: majorityPulse 0.7s ease-in-out infinite alternate;
+}
+
+.party-card.majority-reached .party-majority-tag { display: block; }
+
+/* HEADLINE STRIP */
+#headline-strip {
+  width: 100%;
+  background: rgba(139,0,0,0.5);
+  border: 1px solid var(--border-red);
+  border-radius: 5px;
+  padding: 8px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-shrink: 0;
+  min-height: 44px;
+}
+
+#headline-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  animation: iconPop 2s ease-in-out infinite;
+}
+
+@keyframes iconPop {
+  0%, 90%, 100% { transform: scale(1); }
+  95% { transform: scale(1.3); }
+}
+
+#headline-text {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 22px;
+  letter-spacing: 3px;
+  color: #fff;
+  text-shadow: 0 0 12px rgba(255,100,100,0.4);
+  flex: 1;
+  transition: all 0.4s ease;
+}
+
+/* ── SUB TICKER ──────────────────────────────────────────────────────── */
+#sub-ticker-bar {
+  grid-area: subtick;
+  display: flex;
+  align-items: center;
+  background: rgba(8,8,20,0.97);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  overflow: hidden;
+}
+
+.sub-tag {
+  background: var(--bg3);
+  padding: 0 14px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 14px;
+  letter-spacing: 2px;
+  color: var(--text-dim);
+  border-right: 1px solid rgba(255,255,255,0.08);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.sub-ticker-track {
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.sub-ticker-inner {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: rgba(255,255,255,0.65);
+  white-space: nowrap;
+  animation: subtick 25s linear infinite;
+  padding-left: 100%;
+}
+
+@keyframes subtick {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-100%); }
+}
+
+/* ── MAIN TICKER BAR ─────────────────────────────────────────────────── */
+#main-ticker-bar {
+  grid-area: ticker;
+  display: flex;
+  align-items: center;
+  background: #100800;
+  border-top: 3px solid var(--gold);
+  overflow: hidden;
+  position: relative;
+}
+
+#ticker-breaking-tag {
+  background: var(--gold);
+  color: #000;
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 18px;
+  letter-spacing: 3px;
+  padding: 0 16px;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  flex-shrink: 0;
+  position: relative;
+}
+
+#ticker-breaking-tag::after {
+  content: '';
+  position: absolute;
+  right: -12px;
+  top: 0;
+  bottom: 0;
+  width: 12px;
+  background: linear-gradient(90deg, var(--gold), transparent);
+}
+
+#main-ticker-track {
+  flex: 1;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  padding-left: 20px;
+}
+
+#main-ticker-inner {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 24px;
+  letter-spacing: 3px;
+  color: var(--gold);
+  text-shadow: 0 0 12px rgba(243,156,18,0.4);
+  white-space: nowrap;
+  animation: maintick 22s linear infinite;
+  will-change: transform;
+}
+
+@keyframes maintick {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+
+.tick-sep {
+  color: var(--red);
+  margin: 0 16px;
+}
+
+/* ── MAJORITY REACHED OVERLAY ─────────────────────────────────────────── */
+#majority-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0,0,0,0.6);
+  animation: overlayIn 0.4s ease;
+}
+
+@keyframes overlayIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+#majority-overlay.show { display: flex; }
+
+#majority-banner {
+  background: linear-gradient(135deg, #005700, #27AE60, #005700);
+  border: 3px solid #2ecc71;
+  border-radius: 8px;
+  padding: 30px 60px;
+  text-align: center;
+  box-shadow: 0 0 60px rgba(39,174,96,0.8);
+  animation: bannerPop 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes bannerPop {
+  from { transform: scale(0.5); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
+
+#majority-banner h1 {
+  font-family: 'Bebas Neue', sans-serif;
+  font-size: 80px;
+  letter-spacing: 6px;
+  color: #fff;
+  text-shadow: 0 0 30px rgba(255,255,255,0.5);
+  line-height: 1;
+}
+
+#majority-banner p {
+  font-family: 'Oswald', sans-serif;
+  font-size: 24px;
+  letter-spacing: 4px;
+  color: rgba(255,255,255,0.85);
+  margin-top: 10px;
+}
+
+/* ── STATUS BAR (update indicator) ─────────────────────────────────────── */
+#status-bar {
+  position: fixed;
+  bottom: 95px;
+  right: 16px;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(0,0,0,0.7);
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px;
+  padding: 4px 10px;
+}
+
+#status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--aiadmk);
+  flex-shrink: 0;
+}
+
+#status-text {
+  font-family: 'Oswald', sans-serif;
+  font-size: 11px;
+  letter-spacing: 1px;
+  color: rgba(255,255,255,0.5);
+}
+
+</style>
+</head>
+<body>
+
+<!-- ── BACKGROUND ──────────────────────────────────────────────────────── -->
+<div id="bg-wrap">
+  <div id="grid-bg"></div>
+
+  <!-- Tamil Nadu Map SVG (simplified outline) -->
+  <svg id="map-bg" viewBox="0 0 300 520" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <defs>
+      <linearGradient id="mapGrad" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#C0392B"/>
+        <stop offset="60%" stop-color="#922B21"/>
+        <stop offset="100%" stop-color="#6E2419"/>
+      </linearGradient>
+    </defs>
+    <!-- TN outline (approximate) -->
+    <path d="
+      M 120 8
+      L 160 12
+      L 200 28
+      L 230 55
+      L 248 90
+      L 258 130
+      L 265 170
+      L 268 210
+      L 264 250
+      L 255 285
+      L 240 318
+      L 222 348
+      L 200 375
+      L 178 398
+      L 158 418
+      L 140 438
+      L 125 455
+      L 115 470
+      L 108 490
+      L 102 510
+      L 96 498
+      L 88 480
+      L 78 458
+      L 65 432
+      L 52 405
+      L 40 375
+      L 30 344
+      L 22 312
+      L 16 278
+      L 12 244
+      L 10 210
+      L 12 176
+      L 18 144
+      L 28 114
+      L 42 88
+      L 60 65
+      L 82 46
+      L 102 30
+      Z
+    " fill="url(#mapGrad)" stroke="rgba(240,150,18,0.3)" stroke-width="1.5"/>
+    <!-- District lines (decorative) -->
+    <path d="M 50 180 L 250 180" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+    <path d="M 40 280 L 260 280" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+    <path d="M 30 370 L 240 370" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+    <path d="M 140 8 L 102 510" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+    <!-- Star for Chennai -->
+    <circle cx="215" cy="95" r="5" fill="rgba(243,156,18,0.6)" />
+    <text x="222" y="99" fill="rgba(243,156,18,0.5)" font-size="11" font-family="sans-serif">CHENNAI</text>
+  </svg>
+</div>
+
+<!-- ── MAIN LAYOUT ──────────────────────────────────────────────────────── -->
+<div id="root">
+
+  <!-- TOP BAR -->
+  <div id="top-bar">
+    <div class="top-left">
+      <div class="live-badge">
+        <div class="live-dot"></div>
+        <span class="live-text">LIVE</span>
+      </div>
+      <span class="top-title">TN ELECTION 2026 — LIVE RESULTS</span>
+    </div>
+
+    <span class="top-channel">TN NEWS 24</span>
+
+    <div class="top-right">
+      <div id="live-time">--:--:-- IST</div>
+      <div id="live-date">LOADING...</div>
+    </div>
+  </div>
+
+  <!-- LEFT PANEL — VIJAY (TVK) -->
+  <div id="left-panel">
+    <div id="leader-vijay" class="leader-card">
+      <div class="status-badge" id="vijay-badge">LEADING</div>
+      <div class="leader-icon">🧑‍💼</div>
+      <div class="leader-info-bar">
+        <div class="leader-name">VIJAY</div>
+        <div class="leader-party">TVK — LEADER</div>
+        <div class="leader-seat-count" id="tvk-side-count">0</div>
+        <div class="leader-seat-label">SEATS WON</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER BOARD -->
+  <div id="center-board">
+
+    <!-- Board header -->
+    <div id="board-header">
+      <span id="board-title">⚡ LIVE SEAT COUNT — 234 TOTAL SEATS</span>
+      <span id="declared-count">DECLARED: <span id="declared-num">0</span> / 234</span>
+    </div>
+
+    <!-- Majority progress bar -->
+    <div id="majority-wrap">
+      <div id="majority-bar-track">
+        <div id="majority-label">MAJORITY 118</div>
+        <div id="majority-bar-fill">
+          <div class="mbar-dmk"    id="bar-dmk"    style="flex:0"></div>
+          <div class="mbar-aiadmk" id="bar-aiadmk" style="flex:0"></div>
+          <div class="mbar-tvk"    id="bar-tvk"    style="flex:0"></div>
+          <div class="mbar-ntk"    id="bar-ntk"    style="flex:0"></div>
+          <div class="mbar-others" id="bar-others"  style="flex:0"></div>
+        </div>
+        <div id="majority-line"></div>
+      </div>
+      <div id="bar-legend">
+        <div class="bar-leg-item"><div class="bar-leg-dot" style="background:var(--dmk)"></div>DMK</div>
+        <div class="bar-leg-item"><div class="bar-leg-dot" style="background:var(--aiadmk)"></div>AIADMK</div>
+        <div class="bar-leg-item"><div class="bar-leg-dot" style="background:var(--tvk)"></div>TVK</div>
+        <div class="bar-leg-item"><div class="bar-leg-dot" style="background:var(--ntk)"></div>NTK</div>
+        <div class="bar-leg-item"><div class="bar-leg-dot" style="background:var(--others)"></div>OTHERS</div>
+      </div>
+    </div>
+
+    <!-- 4 Party Cards -->
+    <div id="party-grid">
+
+      <div class="party-card" id="card-dmk">
+        <div class="party-leading-tag">LEADING</div>
+        <div class="party-abbr">DMK</div>
+        <div class="party-full-name">DRAVIDA MUNNETRA KAZHAGAM</div>
+        <div class="party-seat-num" id="dmk-count">0</div>
+        <div class="party-seat-label">SEATS WON</div>
+        <div class="party-majority-tag">✓ MAJORITY</div>
+      </div>
+
+      <div class="party-card" id="card-aiadmk">
+        <div class="party-leading-tag">LEADING</div>
+        <div class="party-abbr">AIADMK</div>
+        <div class="party-full-name">ALL INDIA ANNA DMK</div>
+        <div class="party-seat-num" id="aiadmk-count">0</div>
+        <div class="party-seat-label">SEATS WON</div>
+        <div class="party-majority-tag">✓ MAJORITY</div>
+      </div>
+
+      <div class="party-card" id="card-tvk">
+        <div class="party-leading-tag">LEADING</div>
+        <div class="party-abbr">TVK</div>
+        <div class="party-full-name">TAMILAGA VETTRI KAZHAGAM</div>
+        <div class="party-seat-num" id="tvk-count">0</div>
+        <div class="party-seat-label">SEATS WON</div>
+        <div class="party-majority-tag">✓ MAJORITY</div>
+      </div>
+
+      <div class="party-card" id="card-ntk">
+        <div class="party-leading-tag">LEADING</div>
+        <div class="party-abbr">NTK</div>
+        <div class="party-full-name">NAM TAMILAR KATCHI</div>
+        <div class="party-seat-num" id="ntk-count">0</div>
+        <div class="party-seat-label">SEATS WON</div>
+        <div class="party-majority-tag">✓ MAJORITY</div>
+      </div>
+
+    </div>
+
+    <!-- Headline strip -->
+    <div id="headline-strip">
+      <div id="headline-icon">⚡</div>
+      <div id="headline-text">CONNECTING TO LIVE DATA...</div>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL — EPS (AIADMK) -->
+  <div id="right-panel">
+    <div id="leader-eps" class="leader-card">
+      <div class="status-badge" id="eps-badge">LEADING</div>
+      <div class="leader-icon">👴</div>
+      <div class="leader-info-bar">
+        <div class="leader-name">EPS</div>
+        <div class="leader-party">AIADMK — LEADER</div>
+        <div class="leader-seat-count" id="aiadmk-side-count">0</div>
+        <div class="leader-seat-label">SEATS WON</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUB TICKER -->
+  <div id="sub-ticker-bar">
+    <div class="sub-tag">UPDATES</div>
+    <div class="sub-ticker-track">
+      <div class="sub-ticker-inner" id="sub-ticker-inner">
+        WAITING FOR LIVE DATA — PLEASE CONFIGURE YOUR GOOGLE SHEET &nbsp;|&nbsp; TN ELECTION 2026 &nbsp;|&nbsp; ALL 234 SEATS
+        WAITING FOR LIVE DATA — PLEASE CONFIGURE YOUR GOOGLE SHEET &nbsp;|&nbsp; TN ELECTION 2026 &nbsp;|&nbsp; ALL 234 SEATS
+      </div>
+    </div>
+  </div>
+
+  <!-- MAIN TICKER -->
+  <div id="main-ticker-bar">
+    <div id="ticker-breaking-tag">BREAKING</div>
+    <div id="main-ticker-track">
+      <div id="main-ticker-inner">
+        TAMIL NADU ELECTION 2026 LIVE RESULTS &nbsp;<span class="tick-sep">⚡</span>&nbsp;
+        RESULTS BEING COUNTED AS VOTES ARE TALLIED &nbsp;<span class="tick-sep">⚡</span>&nbsp;
+        TAMIL NADU ELECTION 2026 LIVE RESULTS &nbsp;<span class="tick-sep">⚡</span>&nbsp;
+        RESULTS BEING COUNTED AS VOTES ARE TALLIED &nbsp;<span class="tick-sep">⚡</span>&nbsp;
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- MAJORITY OVERLAY (pops up when a party crosses 118) -->
+<div id="majority-overlay">
+  <div id="majority-banner">
+    <h1 id="majority-party-name">DMK</h1>
+    <p>MAJORITY REACHED — 118+ SEATS</p>
+  </div>
+</div>
+
+<!-- STATUS INDICATOR -->
+<div id="status-bar">
+  <div id="status-dot"></div>
+  <div id="status-text">INITIALIZING...</div>
+</div>
+
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════
+//  ██████╗ ██████╗ ███╗   ██╗███████╗██╗ ██████╗
+//  ██╔════╝██╔═══██╗████╗  ██║██╔════╝██║██╔════╝
+//  ██║     ██║   ██║██╔██╗ ██║█████╗  ██║██║  ███╗
+//  ██║     ██║   ██║██║╚██╗██║██╔══╝  ██║██║   ██║
+//  ╚██████╗╚██████╔╝██║ ╚████║██║     ██║╚██████╔╝
+//   ╚═════╝ ╚═════╝ ╚═╝  ╚═══╝╚═╝     ╚═╝ ╚═════╝
+//
+//  ┌──────────────────────────────────────────────────────────────────┐
+//  │  HOW TO SET YOUR GOOGLE SHEET:                                   │
+//  │                                                                  │
+//  │  1. Open your Google Sheet                                       │
+//  │  2. Copy the ID from the URL:                                    │
+//  │     docs.google.com/spreadsheets/d/[THIS_IS_YOUR_ID]/edit       │
+//  │  3. Paste it below as SHEET_ID                                   │
+//  │  4. Sheet tab must be named  "Sheet1"                            │
+//  │  5. Make sheet public: Share → Anyone with link → Viewer        │
+//  └──────────────────────────────────────────────────────────────────┘
+
+const SHEET_ID   = 'YOUR_GOOGLE_SHEET_ID_HERE'; // ← REPLACE THIS
+const SHEET_NAME = 'Sheet1';                      // ← Change if your tab is named differently
+const FETCH_INTERVAL_MS = 4000;                   // ← Update every 4 seconds (4000ms)
+const MAJORITY_SEATS    = 118;                    // ← Majority threshold
+const TOTAL_SEATS       = 234;                    // ← Total assembly seats
+
+// ── API URL ────────────────────────────────────────────────────────────
+// opensheet.elk.sh converts public Google Sheets to clean JSON.
+// No API key needed. No CORS issues. Works in OBS Browser Source.
+const API_URL = `https://opensheet.elk.sh/${SHEET_ID}/${encodeURIComponent(SHEET_NAME)}`;
+
+// ── STATE ──────────────────────────────────────────────────────────────
+let lastData        = {};
+let majorityShown   = false;
+let fetchCount      = 0;
+let consecutiveErrors = 0;
+
+// ── DOM ELEMENT REFERENCES ─────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const dmkEl        = $('dmk-count');
+const aiadmkEl     = $('aiadmk-count');
+const tvkEl        = $('tvk-count');
+const ntkEl        = $('ntk-count');
+const tvkSideEl    = $('tvk-side-count');
+const aiadmkSideEl = $('aiadmk-side-count');
+const declaredEl   = $('declared-num');
+const headlineEl   = $('headline-text');
+const mainTickerEl = $('main-ticker-inner');
+const subTickerEl  = $('sub-ticker-inner');
+const statusDot    = $('status-dot');
+const statusText   = $('status-text');
+const cardDmk      = $('card-dmk');
+const cardAiadmk   = $('card-aiadmk');
+const cardTvk      = $('card-tvk');
+const cardNtk      = $('card-ntk');
+const vijayBadge   = $('vijay-badge');
+const epsBadge     = $('eps-badge');
+const majOverlay   = $('majority-overlay');
+const majPartyName = $('majority-party-name');
+const barDmk       = $('bar-dmk');
+const barAiadmk    = $('bar-aiadmk');
+const barTvk       = $('bar-tvk');
+const barNtk       = $('bar-ntk');
+const barOthers    = $('bar-others');
+
+// ── CLOCK ──────────────────────────────────────────────────────────────
+function updateClock() {
+  const now  = new Date();
+  const ist  = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const pad  = n => String(n).padStart(2, '0');
+  const days = ['SUNDAY','MONDAY','TUESDAY','WEDNESDAY','THURSDAY','FRIDAY','SATURDAY'];
+  const months = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'];
+
+  $('live-time').textContent =
+    `${pad(ist.getHours())}:${pad(ist.getMinutes())}:${pad(ist.getSeconds())} IST`;
+  $('live-date').textContent =
+    `${days[ist.getDay()]}, ${ist.getDate()} ${months[ist.getMonth()]} ${ist.getFullYear()}`;
+}
+updateClock();
+setInterval(updateClock, 1000);
+
+// ── SEAT NUMBER ANIMATION ──────────────────────────────────────────────
+function animateSeatChange(el, newVal, oldVal) {
+  if (newVal === oldVal) return;
+  el.textContent = newVal;
+  el.classList.remove('seat-updated');
+  // Force reflow to restart animation
+  void el.offsetWidth;
+  el.classList.add('seat-updated');
+}
+
+// ── UPDATE STATUS INDICATOR ────────────────────────────────────────────
+function setStatus(state, msg) {
+  statusText.textContent = msg;
+  if (state === 'ok') {
+    statusDot.style.background = '#27AE60';
+  } else if (state === 'error') {
+    statusDot.style.background = '#E74C3C';
+  } else {
+    statusDot.style.background = '#F39C12';
+  }
+}
+
+// ── HIGHLIGHT LEADING PARTY ────────────────────────────────────────────
+function updateLeadingParty(data) {
+  const parties = [
+    { key: 'dmk',    card: cardDmk,    seats: data.dmk    || 0 },
+    { key: 'aiadmk', card: cardAiadmk, seats: data.aiadmk || 0 },
+    { key: 'tvk',    card: cardTvk,    seats: data.tvk    || 0 },
+    { key: 'ntk',    card: cardNtk,    seats: data.ntk    || 0 },
+  ];
+
+  const maxSeats = Math.max(...parties.map(p => p.seats));
+
+  parties.forEach(p => {
+    const isLeading = p.seats > 0 && p.seats === maxSeats;
+    const hasMajority = p.seats >= MAJORITY_SEATS;
+
+    p.card.classList.toggle('leading', isLeading && !hasMajority);
+    p.card.classList.toggle('majority-reached', hasMajority);
+  });
+
+  // Leader panels — show badge for whoever has the most seats
+  const dmkMax = (data.dmk || 0) === maxSeats && maxSeats > 0;
+  const tvkMax = (data.tvk || 0) === maxSeats && maxSeats > 0;
+  const aiadmkMax = (data.aiadmk || 0) === maxSeats && maxSeats > 0;
+
+  // TVK badge (Vijay panel)
+  if (data.tvk >= MAJORITY_SEATS) {
+    vijayBadge.textContent = '✓ MAJORITY';
+    vijayBadge.className = 'status-badge majority';
+  } else if (tvkMax) {
+    vijayBadge.textContent = 'LEADING';
+    vijayBadge.className = 'status-badge leading';
+  } else {
+    vijayBadge.className = 'status-badge';
+  }
+
+  // AIADMK badge (EPS panel)
+  if (data.aiadmk >= MAJORITY_SEATS) {
+    epsBadge.textContent = '✓ MAJORITY';
+    epsBadge.className = 'status-badge majority';
+  } else if (aiadmkMax) {
+    epsBadge.textContent = 'LEADING';
+    epsBadge.className = 'status-badge leading';
+  } else {
+    epsBadge.className = 'status-badge';
+  }
+}
+
+// ── MAJORITY OVERLAY ───────────────────────────────────────────────────
+function checkMajority(data) {
+  if (majorityShown) return;
+
+  const names = { dmk: 'DMK', aiadmk: 'AIADMK', tvk: 'TVK', ntk: 'NTK' };
+
+  for (const [key, name] of Object.entries(names)) {
+    const seats = data[key] || 0;
+    if (seats >= MAJORITY_SEATS) {
+      console.log(`[MAJORITY] ${name} has crossed ${MAJORITY_SEATS} seats with ${seats} seats.`);
+      majorityShown = true;
+      majPartyName.textContent = name;
+      majOverlay.classList.add('show');
+
+      // Auto-hide overlay after 8 seconds
+      setTimeout(() => {
+        majOverlay.classList.remove('show');
+      }, 8000);
+
+      break;
+    }
+  }
+}
+
+// ── UPDATE MAJORITY BAR ────────────────────────────────────────────────
+function updateMajorityBar(data) {
+  const dmk    = data.dmk    || 0;
+  const aiadmk = data.aiadmk || 0;
+  const tvk    = data.tvk    || 0;
+  const ntk    = data.ntk    || 0;
+  const others = data.others || 0;
+
+  barDmk.style.flex    = dmk;
+  barAiadmk.style.flex = aiadmk;
+  barTvk.style.flex    = tvk;
+  barNtk.style.flex    = ntk;
+  barOthers.style.flex = others;
+}
+
+// ── UPDATE TICKER ──────────────────────────────────────────────────────
+function updateTicker(tickerText) {
+  if (!tickerText) return;
+  // Duplicate text so scroll loops seamlessly
+  const doubled = `${tickerText} &nbsp;<span class="tick-sep">⚡</span>&nbsp; ${tickerText} &nbsp;<span class="tick-sep">⚡</span>&nbsp;`;
+  mainTickerEl.innerHTML = doubled;
+
+  // Also update sub-ticker with abbreviated version
+  subTickerEl.textContent = tickerText + ' | ' + tickerText;
+}
+
+// ── PARSE SHEET ROWS ───────────────────────────────────────────────────
+// opensheet.elk.sh returns: [ { key: "dmk", value: "132" }, ... ]
+function parseSheetRows(rows) {
+  const data = {};
+  if (!Array.isArray(rows)) {
+    console.error('[PARSE] Expected array, got:', typeof rows);
+    return data;
+  }
+  rows.forEach(row => {
+    // Sheet may use different casing — normalize
+    const key   = (row.key   || row.Key   || '').toString().trim().toLowerCase();
+    const value = (row.value || row.Value || '').toString().trim();
+    if (key) data[key] = value;
+  });
+  return data;
+}
+
+// ── APPLY DATA TO UI ───────────────────────────────────────────────────
+function applyData(raw) {
+  try {
+    const data = parseSheetRows(raw);
+    console.log('[DATA]', data);
+
+    // Parse seat numbers safely (fallback to 0 if missing/NaN)
+    const safe = (key) => {
+      const n = parseInt(data[key], 10);
+      return isNaN(n) ? 0 : Math.max(0, n);
+    };
+
+    const dmk    = safe('dmk');
+    const aiadmk = safe('aiadmk');
+    const tvk    = safe('tvk');
+    const ntk    = safe('ntk');
+    const others = safe('others');
+    const declared = safe('declared') || (dmk + aiadmk + tvk + ntk + others);
+
+    const normalizedData = { dmk, aiadmk, tvk, ntk, others, declared };
+
+    // ── Animate seat number changes
+    animateSeatChange(dmkEl,    dmk,    lastData.dmk    || 0);
+    animateSeatChange(aiadmkEl, aiadmk, lastData.aiadmk || 0);
+    animateSeatChange(tvkEl,    tvk,    lastData.tvk    || 0);
+    animateSeatChange(ntkEl,    ntk,    lastData.ntk    || 0);
+
+    // Side panels
+    tvkSideEl.textContent    = tvk;
+    aiadmkSideEl.textContent = aiadmk;
+
+    // Declared count
+    declaredEl.textContent = declared;
+
+    // Headline
+    if (data.headline) {
+      headlineEl.textContent = data.headline.toUpperCase();
+    }
+
+    // Ticker
+    if (data.ticker) {
+      updateTicker(data.ticker);
+    }
+
+    // Bar
+    updateMajorityBar(normalizedData);
+
+    // Leading party highlight
+    updateLeadingParty(normalizedData);
+
+    // Majority check
+    checkMajority(normalizedData);
+
+    lastData = normalizedData;
+    consecutiveErrors = 0;
+
+  } catch (err) {
+    console.error('[APPLY DATA ERROR]', err);
+  }
+}
+
+// ── FETCH FROM GOOGLE SHEETS ───────────────────────────────────────────
+async function fetchData() {
+  // Guard: don't fetch if SHEET_ID is still the placeholder
+  if (SHEET_ID === 'YOUR_GOOGLE_SHEET_ID_HERE') {
+    setStatus('warn', 'SET YOUR SHEET_ID');
+    headlineEl.textContent = 'SET YOUR GOOGLE SHEET ID IN THE HTML FILE';
+    return;
+  }
+
+  fetchCount++;
+  setStatus('loading', `FETCHING... #${fetchCount}`);
+
+  try {
+    // Cache-bust with timestamp so OBS doesn't cache old data
+    const url = `${API_URL}?_t=${Date.now()}`;
+    console.log(`[FETCH #${fetchCount}]`, url);
+
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      // Short timeout — if sheet is slow, skip this cycle
+      signal: AbortSignal.timeout(8000)
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status} — ${res.statusText}`);
+    }
+
+    const json = await res.json();
+    applyData(json);
+
+    const now = new Date();
+    const pad = n => String(n).padStart(2, '0');
+    setStatus('ok', `LIVE · ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`);
+
+  } catch (err) {
+    consecutiveErrors++;
+    const isTimeout = err.name === 'TimeoutError' || err.name === 'AbortError';
+    const msg = isTimeout ? 'TIMEOUT' : 'FETCH ERROR';
+
+    console.error(`[${msg} #${consecutiveErrors}]`, err.message);
+    setStatus('error', `${msg} — RETRY ${consecutiveErrors}`);
+
+    // After 5 consecutive errors, show notice in headline
+    if (consecutiveErrors >= 5) {
+      headlineEl.textContent = `DATA CONNECTION ISSUE — CHECK SHEET ID AND SHEET VISIBILITY`;
+    }
+  }
+}
+
+// ── START ──────────────────────────────────────────────────────────────
+// Fetch immediately, then repeat every FETCH_INTERVAL_MS
+fetchData();
+setInterval(fetchData, FETCH_INTERVAL_MS);
+
+// ── OBS VISIBILITY HANDLER ─────────────────────────────────────────────
+// When OBS shows/hides this source, resume fetching immediately
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) {
+    console.log('[VIS] Page became visible — fetching immediately');
+    fetchData();
+  }
+});
+
+// ── LOG STARTUP ────────────────────────────────────────────────────────
+console.log('═══════════════════════════════════════════════');
+console.log('  TN ELECTION 2026 OVERLAY — STARTED');
+console.log(`  Sheet ID  : ${SHEET_ID}`);
+console.log(`  Sheet Name: ${SHEET_NAME}`);
+console.log(`  API URL   : ${API_URL}`);
+console.log(`  Interval  : ${FETCH_INTERVAL_MS}ms`);
+console.log(`  Majority  : ${MAJORITY_SEATS} seats`);
+console.log('═══════════════════════════════════════════════');
+
+</script>
+</body>
+</html>
